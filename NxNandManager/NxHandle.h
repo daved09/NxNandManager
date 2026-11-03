@@ -17,9 +17,7 @@
 #ifndef __NxHandle_h__
 #define __NxHandle_h__
 
-#include <windows.h>
-#include <winioctl.h>
-#include <Wincrypt.h>
+#include "res/win_compat.h"
 #include <iostream>
 #include <string>
 #include <mutex>

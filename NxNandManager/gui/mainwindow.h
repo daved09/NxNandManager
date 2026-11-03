@@ -20,9 +20,7 @@
 #include <QMainWindow>
 #include <QThread>
 #include <QTimer>
-#include <QtWinExtras>
-#include <QtWinExtras>
-#include <QWinTaskbarProgress>
+#include "taskbar_compat.h"
 #include <QTableWidgetItem>
 #include "../res/progress_info.h"
 #include "../NxStorage.h"

@@ -15,7 +15,9 @@
  */
 
 #include "NxPartition.h"
+#if defined(_WIN32)
 #include <dokan/dokan.h>
+#endif
 
 // Constructor
 NxPartition::NxPartition(NxStorage *p, const char* p_name, u32 lba_start, u32 lba_end, u64 attrs)
@@ -757,7 +759,11 @@ int NxPartition::unmount_vfs()
 
     WCHAR mount_point[4] = L" :\\";
     getVolumeMountPoint(mount_point);
+#if defined(_WIN32)
     int res = DokanRemoveMountPoint(mount_point) ? SUCCESS : ERR_FAILED_TO_UNMOUNT_FS;
+#else
+    int res = ERR_FAILED_TO_UNMOUNT_FS;
+#endif
     return res;
 }
 

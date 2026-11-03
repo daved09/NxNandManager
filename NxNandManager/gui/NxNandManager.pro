@@ -21,12 +21,19 @@ DEFINES += QT_DEPRECATED_WARNINGS
 # You can also select to disable deprecated APIs only up to a certain version of Qt.
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
-CONFIG += c++11
 CONFIG += console
-CONFIG += static create_prl link_prl
 CONFIG += object_parallel_to_source
 
-QMAKE_CXXFLAGS += -fpermissive -std=c++0x -pthread
+win32 {
+    CONFIG += c++11
+    CONFIG += static create_prl link_prl
+    QMAKE_CXXFLAGS += -fpermissive -std=c++0x -pthread
+}
+unix {
+    CONFIG += c++17
+    QMAKE_CXXFLAGS += -fpermissive -pthread -Wno-write-strings -Wno-narrowing
+    QMAKE_CFLAGS += -Wno-enum-conversion
+}
 LIBS += -pthread
 
 SOURCES += \
@@ -48,11 +55,7 @@ SOURCES += \
     ../NxPartition.cpp \
     ../NxHandle.cpp \
     ../res/win_ioctl.cpp \
-    ../virtual_fs/filenode.cpp \
-    ../virtual_fs/filenodes.cpp \
-    ../virtual_fs/virtual_fs.cpp \
-    ../virtual_fs/virtual_fs_helper.cpp \
-    ../virtual_fs/virtual_fs_operations.cpp \
+    ../res/win_compat.cpp \
     emunand.cpp \
     explorer.cpp \
     hactoolnet.cpp \
@@ -70,7 +73,6 @@ SOURCES += \
     $$files(../lib/ZipLib/*.cpp, false) \
     $$files(../lib/ZipLib/detail/*.cpp, false) \
     $$files(../lib/ZipLib/extlibs/bzip2/*.c, false) \
-    $$files(../lib/ZipLib/extlibs/lzma/*.c, false) \
     debug.cpp
 HEADERS += \
     ../NxFile.h \
@@ -92,11 +94,9 @@ HEADERS += \
     ../NxStorage.h \
     ../NxCrypto.h \
     ../res/win_ioctl.h \
-    ../virtual_fs/filenode.h \
-    ../virtual_fs/filenodes.h \
+    ../res/win_compat.h \
     ../virtual_fs/virtual_fs.h \
-    ../virtual_fs/virtual_fs_helper.h \
-    ../virtual_fs/virtual_fs_operations.h \
+    taskbar_compat.h \
     explorer.h \
     gui.h \
     hactoolnet.h \
@@ -121,11 +121,39 @@ HEADERS += \
     ../lib/ZipLib/extlibs/lzma/*.h \
     debug.h
 
+# Virtual filesystem (Dokan driver, Windows only)
+win32 {
+    SOURCES += \
+        ../virtual_fs/filenode.cpp \
+        ../virtual_fs/filenodes.cpp \
+        ../virtual_fs/virtual_fs.cpp \
+        ../virtual_fs/virtual_fs_helper.cpp \
+        ../virtual_fs/virtual_fs_operations.cpp
+    HEADERS += \
+        ../virtual_fs/filenode.h \
+        ../virtual_fs/filenodes.h \
+        ../virtual_fs/virtual_fs_helper.h \
+        ../virtual_fs/virtual_fs_operations.h
+    SOURCES += $$files(../lib/ZipLib/extlibs/lzma/*.c, false)
+}
+unix {
+    QT += concurrent
+    SOURCES += ../virtual_fs/virtual_fs_stub.cpp
+    # Multi-threaded LZMA code is Win32 only
+    LZMA_SOURCES = $$files(../lib/ZipLib/extlibs/lzma/*.c, false)
+    LZMA_SOURCES -= ../lib/ZipLib/extlibs/lzma/LzFindMt.c ../lib/ZipLib/extlibs/lzma/MtCoder.c ../lib/ZipLib/extlibs/lzma/Threads.c
+    SOURCES += $$LZMA_SOURCES
+    DEFINES += _7ZIP_ST S_OK=0
+    # Qt doesn't export zlib on Linux, use bundled sources
+    !CONFIG(DYNAMIC): SOURCES += $$files(../lib/ZipLib/extlibs/zlib/*.c, false)
+    LIBS += -lcrypto
+}
+
 CONFIG(STATIC) {
     HEADERS -= ../lib/ZipLib/extlibs/zlib/zconf.h
 }
 CONFIG(DYNAMIC) {
-    SOURCES += $$files(../lib/ZipLib/extlibs/zlib/*.c, false)
+    !CONFIG(DYNAMIC): SOURCES += $$files(../lib/ZipLib/extlibs/zlib/*.c, false)
     HEADERS += ../lib/ZipLib/extlibs/zlib/*.h \
 }
 
@@ -151,9 +179,10 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 RESOURCES += \
     application.qrc
 
-QT += winextras
-
-RC_FILE = NxNandManager.rc
+win32 {
+    QT += winextras
+    RC_FILE = NxNandManager.rc
+}
 
 CONFIG(ARCH32) {
     DEFINES += ARCH32
@@ -169,12 +198,16 @@ CONFIG(ARCH64) {
     LIBS += -L$$PWD/../virtual_fs/dokan/x64/lib/ -ldokan1
 }
 
-INCLUDEPATH += $$PWD/../virtual_fs/dokan/include
-DEPENDPATH += $$PWD/../virtual_fs/dokan/include
+win32 {
+    INCLUDEPATH += $$PWD/../virtual_fs/dokan/include
+    DEPENDPATH += $$PWD/../virtual_fs/dokan/include
+}
 
 win32: LIBS += -L$${OPENSSL_LIB_PATH}/lib/ -lcrypto
-INCLUDEPATH += $${OPENSSL_LIB_PATH}/include
-DEPENDPATH += $${OPENSSL_LIB_PATH}/include
+win32 {
+    INCLUDEPATH += $${OPENSSL_LIB_PATH}/include
+    DEPENDPATH += $${OPENSSL_LIB_PATH}/include
+}
 
 win32:!win32-g++: PRE_TARGETDEPS += $${OPENSSL_LIB_PATH}/lib/crypto.lib
 else:win32-g++: PRE_TARGETDEPS += $${OPENSSL_LIB_PATH}/lib/libcrypto.a

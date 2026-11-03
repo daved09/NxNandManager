@@ -67,6 +67,12 @@ void NxHandle::createHandle(unsigned long io_mode)
         {
             b_isDrive = true;
             m_totalSize = pdg.Cylinders.QuadPart * (ULONG)pdg.TracksPerCylinder * (ULONG)pdg.SectorsPerTrack * (ULONG)pdg.BytesPerSector;
+#if !defined(_WIN32)
+            // Geometry based size is truncated to a cylinder boundary, get the exact length
+            GET_LENGTH_INFORMATION gli;
+            if (DeviceIoControl(m_h, IOCTL_DISK_GET_LENGTH_INFO, NULL, 0, &gli, sizeof(gli), &junk, (LPOVERLAPPED)NULL))
+                m_totalSize = (u64)gli.Length.QuadPart;
+#endif
             m_size = m_totalSize;
             exists = true;
         }
@@ -858,18 +864,15 @@ bool NxHandle::ejectVolume()
 
 bool NxHandle::dismountAllVolumes()
 {
-    std::wstring drive(m_path);
-    std::transform(drive.begin(), drive.end(), drive.begin(), ::toupper);
-    std::size_t pos = drive.find(L"PHYSICALDRIVE");
-    if (pos == std::string::npos)
+    DWORD driveNumber;
+    if (!GetDiskNumberFromPath(m_path, &driveNumber))
         return false;
 
-    int driveNumber = stoi(drive.substr(pos + 13, 2));
     std::vector<diskDescriptor> disks;
     GetDisks(&disks);
     for (diskDescriptor disk : disks)
     {
-        if ((int)disk.diskNumber == driveNumber)
+        if (disk.diskNumber == driveNumber)
         {
             return DisMountAllVolumes(disk);
         }
@@ -879,13 +882,10 @@ bool NxHandle::dismountAllVolumes()
 
 bool NxHandle::getVolumeName(WCHAR *pVolumeName, u32 start_sector)
 {
-    std::wstring drive(m_path);
-    std::transform(drive.begin(), drive.end(), drive.begin(), ::toupper);
-    std::size_t pos = drive.find(L"PHYSICALDRIVE");
-    if (pos == std::string::npos)
+    DWORD driveNumber;
+    if (!GetDiskNumberFromPath(m_path, &driveNumber))
         return false;
 
-    int driveNumber = stoi(drive.substr(pos + 13, 2));
     return GetVolumeName(driveNumber, (u64)start_sector * NX_BLOCKSIZE, pVolumeName);
 }
 

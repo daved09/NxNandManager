@@ -4,7 +4,7 @@
 _____________________________
 
 ![Png](https://img.shields.io/badge/latest%20stable%20release-5.1-yellow) 
-![Png](https://img.shields.io/badge/platform-windows-lightgrey)
+![Png](https://img.shields.io/badge/platform-windows%20%7C%20linux-lightgrey)
 ![GitHub contributors](https://img.shields.io/github/contributors/eliboa/NxNandManager)
 ![GitHub](https://img.shields.io/github/license/eliboa/NxNandManager)
 ![GitHub All Releases](https://img.shields.io/github/downloads/eliboa/NxNandManager/total)
@@ -221,13 +221,45 @@ cd NxNandManager/NxNandManager
 make
 ```
 
-**Note :** Line ```#define ENABLE_GUI``` in file "gui/gui.h" has to be commented
+**Note :** The Makefile builds the CLI only (```NO_GUI``` is defined)
 
 ### CLI + GUI (Qt) : MinGW
 
 **Dependencies :** [Qt](https://www.qt.io/download), [OpenSSL](https://www.openssl.org/source/) (You can grab my own pre-compiled binaries for mingw32/64 [here](https://www.eliboa.com/OpenSSL_mingw_build.rar))
 
 I made a [step by step guide](https://github.com/eliboa/NxNandManager/blob/master/doc/NxNandManager_Set_up_and_build_project_with_Qt.pdf) to set up, build and run the project with Qt. 
+
+## Linux
+
+NxNandManager (CLI and GUI) can be built and run on Linux.
+
+### Build
+
+**Dependencies :** a C++17 compiler, make, OpenSSL (libcrypto) and, for the GUI, Qt 5 (qmake).   
+e.g. on Debian/Ubuntu: ```sudo apt install build-essential libssl-dev qtbase5-dev qt5-qmake```, on Arch: ```sudo pacman -S base-devel openssl qt5-base```
+
+CLI only:
+```
+cd NxNandManager/NxNandManager
+make
+```
+
+CLI + GUI (Qt):
+```
+mkdir build && cd build
+qmake ../NxNandManager/NxNandManager/gui/NxNandManager.pro   # "qmake-qt5" on some distributions
+make -j$(nproc)
+./NxNandManager            # GUI
+./NxNandManager --info -i rawnand.bin   # CLI
+```
+
+### Usage notes
+
+- Physical drives are addressed by their device node instead of ```\\.\PhysicalDriveX```, e.g. ```-i /dev/sdc``` (whole disk) or ```-i /dev/sdc1``` (partition). Use ```lsblk``` or ```--list``` to find the right one.
+- Reading from / writing to physical drives requires root privileges (```sudo```) or membership of the ```disk``` group. Working with dump files doesn't.
+- File based emuNAND creation (```--create_filebased_emunand_AMS``` / ```_SXOS```) expects ```-o``` to point to the mount directory of the SD card (e.g. ```/run/media/$USER/SD```) instead of a drive letter.
+- Mounting partitions as virtual disk (```--mount```, Mount button in GUI) relies on the Dokan driver and is **not available on Linux**. Everything else (backup, restore, encrypt/decrypt, resize, emuNAND creation, explorer, ...) is supported.
+- External tools used by the explorer must be placed in ```res/``` relative to the working directory, as Linux executables: ```res/hactoolnet``` and ```res/hactool```.
 
 ## Licencing
 

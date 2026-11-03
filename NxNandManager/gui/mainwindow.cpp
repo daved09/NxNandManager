@@ -978,7 +978,7 @@ void MainWindow::on_partition_table_itemSelectionChanged()
     if (button)
         delete button;
 
-    if (is_in(selected_part->type(), {USER, SYSTEM, SAFE, PRODINFOF}))
+    if (VFS_SUPPORTED && is_in(selected_part->type(), {USER, SYSTEM, SAFE, PRODINFOF}))
     {
         auto button = new QPushButton(this);
         button->setObjectName("mount_button");
@@ -1477,6 +1477,10 @@ void MainWindow::launch_vfs(virtual_fs::virtual_fs* fs)
 
 void MainWindow::restartDebug()
 {
+#if !defined(_WIN32)
+    QProcess::startDetached(QCoreApplication::applicationFilePath(), QStringList() << "--gui" << "DEBUG_MODE");
+    exit(EXIT_SUCCESS);
+#else
     PROCESS_INFORMATION pi;
     STARTUPINFO si;
     BOOL ret = FALSE;
@@ -1490,4 +1494,5 @@ void MainWindow::restartDebug()
     module_path.append(L" --gui DEBUG_MODE");
     ret = CreateProcess(nullptr, &module_path[0], nullptr, nullptr, NULL, flags, nullptr, nullptr, &si, &pi);
     exit(EXIT_SUCCESS);
+#endif
 }

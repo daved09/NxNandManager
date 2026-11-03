@@ -712,7 +712,7 @@ void ZipArchiveEntry::InternalCompressStream(std::istream& inputStream, std::ost
     inputStream.seekg (0, inputStream.end);
     pi.bytesTotal = inputStream.tellg();
     inputStream.seekg (0, inputStream.beg);
-    sprintf_s(pi.storage_name, 256, "%s", this->GetName().c_str());
+    snprintf(pi.storage_name, 256, "%s", this->GetName().c_str());
 
 
   std::ostream* intermediateStream = &outputStream;

@@ -29,6 +29,62 @@ THE SOFTWARE.
 #ifndef virtual_fs_H_
 #define virtual_fs_H_
 #include "../gui/gui.h"
+
+#if !defined(_WIN32)
+// Dokan is Windows only: on other platforms, provide a stub implementation (virtual_fs_stub.cpp)
+#include "../res/win_compat.h"
+#include <memory>
+#include "../NxPartition.h"
+#if defined(ENABLE_GUI)
+#include <QObject>
+#endif
+
+#define VFS_SUPPORTED false
+#define DOKAN_SUCCESS 0
+#define DOKAN_DRIVER_INSTALL_ERROR -3
+std::string dokanNtStatusToStr(NTSTATUS status);
+int installDokanDriver(bool silent = false);
+
+namespace virtual_fs {
+class fs_filenodes {
+public:
+    void deleteNxFiles() {}
+};
+
+class virtual_fs
+#if defined(ENABLE_GUI)
+    : public QObject
+{
+    Q_OBJECT
+#else
+{
+#endif
+    public:
+    virtual_fs(NxPartition* part) : partition(part) {}
+    virtual ~virtual_fs() {}
+    int populate();
+    void run();
+
+    WCHAR mount_point[4] = L"\0:\\";
+    bool read_only = false;
+    bool virtualize_nxa = false;
+    NxPartition *partition;
+
+    void setDriveLetter(const wchar_t letter) { mount_point[0] = letter; }
+    void setReadOnly(bool state = true) { read_only = state; }
+    void(*callback_func)(NTSTATUS) = nullptr;
+    void setCallBackFunction(void(*func_ptr)(NTSTATUS)) { callback_func = func_ptr; }
+
+    std::unique_ptr<::virtual_fs::fs_filenodes> fs_filenodes;
+#if defined(ENABLE_GUI)
+signals:
+    void dokan_callback(long res);
+#endif
+};
+}  // namespace virtual_fs
+
+#else // _WIN32
+#define VFS_SUPPORTED true
 #include <dokan/dokan.h>
 #include <dokan/fileinfo.h>
 #include "filenodes.h"
@@ -94,4 +150,5 @@ signals:
 };
 }  // namespace virtual_fs
 
+#endif // _WIN32
 #endif  // virtual_fs_H_

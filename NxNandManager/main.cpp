@@ -19,6 +19,19 @@
 #include "res/utils.h"
 #include "virtual_fs/virtual_fs.h"
 #include <fcntl.h>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
+
+#if defined(_WIN32)
+#define DRIVE_EXAMPLE "\\\\.\\PhysicalDriveX"
+#define DRIVE_EXAMPLE_N "\\\\.\\PhysicalDrive3"
+#define VOLUME_EXAMPLE "a drive letter (ex F:)"
+#else
+#define DRIVE_EXAMPLE "/dev/sdX"
+#define DRIVE_EXAMPLE_N "/dev/sdc"
+#define VOLUME_EXAMPLE "a mounted volume (ex /run/media/user/SD)"
+#endif
 
 BOOL BYPASS_MD5SUM = FALSE;
 bool isdebug = FALSE;
@@ -37,10 +50,17 @@ int startGUI(int argc, char *argv[])
         outFile.open(QIODevice::WriteOnly | QIODevice::Truncate);
 
         // redirect stdout
+#if defined(_WIN32)
         _dup2(outFile.handle(), _fileno(stdout));
 
         // redirect stderr
         _dup2(_fileno(stdout), _fileno(stderr));
+#else
+        dup2(outFile.handle(), fileno(stdout));
+
+        // redirect stderr
+        dup2(fileno(stdout), fileno(stderr));
+#endif
     }
     QCoreApplication::setOrganizationName("eliboa");
     QCoreApplication::setOrganizationDomain("eliboa.com");
@@ -205,8 +225,8 @@ int main(int argc, char *argv[])
 
     // Arguments, controls & usage
     auto PrintUsage = []() -> int {
-        printf("usage: NxNandManager -i <inputFilename|\\\\.\\PhysicalDriveX>\n"
-            "           -o <outputFilename|\\\\.\\PhysicalDrivekX> [Options] [Flags]\n\n"
+        printf("usage: NxNandManager -i <inputFilename|" DRIVE_EXAMPLE ">\n"
+            "           -o <outputFilename|" DRIVE_EXAMPLE "> [Options] [Flags]\n\n"
             "=> Arguments:\n\n"
             "  -i                Path to input file/drive\n"
             "  -o                Path to output file/drive\n"
@@ -258,16 +278,16 @@ int main(int argc, char *argv[])
                "   -i               Input path to a valid RAWNAND or FULL NAND file/drive\n"
                "   -boot0           Input path to a valid BOOT0 file/drive (not needed if input is FULL NAND)\n"
                "   -boot1           Input path to a valid BOOT1 file/drive (not needed if input is FULL NAND)\n"
-               "   -o               Path to SD volume (i.e drive letter) or physical drive\n"
+               "   -o               Path to SD volume (" VOLUME_EXAMPLE ") or physical drive\n"
                "                    If -o is not provided, the program will display a list a compatible outputs\n\n"
                " Additionally, submit one of the following arguments:\n"
                "  --create_partition_emunand        To create a partition based emunand compatible with both Atmosphere\n"
                "                                    and SX OS. Another partition (FAT32) will be created with space left.\n"
-               "                                    -o must point to a physical drive (ex \\\\.\\PhysicalDrive3)\n"
+               "                                    -o must point to a physical drive (ex " DRIVE_EXAMPLE_N ")\n"
                "  --create_filebased_emunand_AMS    To create a file based emunand for Atmosphere (emuMMC) \n"
-               "                                    -o must point to a drive letter (ex F:)\n"
+               "                                    -o must point to " VOLUME_EXAMPLE "\n"
                "  --create_filebased_emunand_SXOS   To create a file based emunand for SX OS \n"
-               "                                    -o must point to a drive letter (ex F:)\n\n");
+               "                                    -o must point to " VOLUME_EXAMPLE "\n\n");
 
         throwException(ERR_WRONG_USE);
         return -1;
@@ -275,7 +295,11 @@ int main(int argc, char *argv[])
 
     if (argc == 1)
     {
-#if defined(ENABLE_GUI)
+#if defined(ENABLE_GUI) && !defined(_WIN32)
+        printf("No argument provided. Switching to GUI mode...\n");
+        startGUI(argc, argv);
+        exit(EXIT_SUCCESS);
+#elif defined(ENABLE_GUI)
         printf("No argument provided. Switching to GUI mode...\n");
         PROCESS_INFORMATION pi;
         STARTUPINFO si;
@@ -470,10 +494,17 @@ int main(int argc, char *argv[])
 
         printf("Redirecting stdout to %s\n", std_redir_output);
         // redirect stdout
+#if defined(_WIN32)
         _dup2(fd, _fileno(stdout));
 
         // redirect stderr
         _dup2(_fileno(stdout), _fileno(stderr));
+#else
+        dup2(fd, fileno(stdout));
+
+        // redirect stderr
+        dup2(fileno(stdout), fileno(stderr));
+#endif
     }
 
     if (dokan_install)
@@ -664,6 +695,9 @@ int main(int argc, char *argv[])
 
     if (mount)
     {
+#if !defined(_WIN32)
+        throwException("--mount is not supported on this platform (Dokan is Windows only)");
+#else
         if (not_in(nx_input.type, {RAWNAND, RAWMMC, PRODINFOF, SAFE, USER, SYSTEM}))
             throwException("invalid input (RAWNAND, RAWMMC, PRODINFOF, SAFE, USER, SYSTEM)");
 
@@ -727,6 +761,7 @@ int main(int argc, char *argv[])
         v_fs.run();
 
         exit(EXIT_SUCCESS);
+#endif
     }
 
 
@@ -761,7 +796,7 @@ int main(int argc, char *argv[])
         {
             printf("List of removable disks large enough to create a raw based emunand: \n");
             for (diskDescriptor disk : available_disks)
-                printf("- \\\\.\\PhysicalDrive%d (%s - %s %s)\n", disk.diskNumber, GetReadableSize(disk.size).c_str(), disk.vId.c_str(), disk.pId.c_str());
+                printf("- %s (%s - %s %s)\n", wstring_to_utf8(GetPhysicalDrivePath(disk.diskNumber)).c_str(), GetReadableSize(disk.size).c_str(), disk.vId.c_str(), disk.pId.c_str());
 
         }
         else
@@ -769,8 +804,7 @@ int main(int argc, char *argv[])
             printf("List of volumes with enough free space to create a file based emunand: \n");
             for (volumeDescriptor vol : available_volumes)
             {
-                std::transform(vol.mountPt.begin(), vol.mountPt.end(), vol.mountPt.begin(), ::toupper);
-                printf("- %s: (%s)\n",  std::string(vol.mountPt.begin(), vol.mountPt.end()).c_str(), GetReadableSize(vol.size).c_str());
+                printf("- %s (%s)\n", wstring_to_utf8(GetMountPointLabel(vol.mountPt)).c_str(), GetReadableSize(vol.size).c_str());
             }
         }
         exit(EXIT_SUCCESS);
@@ -816,7 +850,11 @@ int main(int argc, char *argv[])
         }
         else
         {
+            #if defined(_WIN32)
             rc = nx_input.createFileBasedEmuNand(emunandType, std::string("\\\\.\\").append(output).c_str(), printProgress, boot0, boot1);
+#else
+            rc = nx_input.createFileBasedEmuNand(emunandType, output, printProgress, boot0, boot1);
+#endif
         }
         if (rc != SUCCESS)
             throwException(rc);
@@ -1100,7 +1138,7 @@ int main(int argc, char *argv[])
             {
                 char new_out[MAX_PATH];
                 strcpy(new_out, output);
-                strcat(new_out, "\\");
+                strcat(new_out, PATH_SEPARATOR);
                 strcat(new_out, part_name);
                 if (is_file(new_out))
                 {
@@ -1139,7 +1177,7 @@ int main(int argc, char *argv[])
                 char new_out[MAX_PATH];
                 if (is_dir(output)) {
                     strcpy(new_out, output);
-                    strcat(new_out, "\\");
+                    strcat(new_out, PATH_SEPARATOR);
                     strcat(new_out, part_name);
                 }
                 else strcpy(new_out, output);

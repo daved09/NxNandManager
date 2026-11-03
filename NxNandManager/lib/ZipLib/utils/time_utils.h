@@ -4,8 +4,10 @@
 
 #if defined(_MSC_VER)
 # define _utils_stream_localtime(dt, ts)  do { localtime_s((ts), (dt)); } while (0)
-#elif defined(__GNUC__) || defined(__GNUG__)
+#elif defined(_WIN32) && (defined(__GNUC__) || defined(__GNUG__))
 # define _utils_stream_localtime(dt, ts)  do { localtime_s((ts), (dt)); } while (0)
+#elif defined(__GNUC__) || defined(__GNUG__)
+# define _utils_stream_localtime(dt, ts)  do { localtime_r((dt), (ts)); } while (0)
 #else
 # define _utils_stream_localtime(dt, ts)  do { tm* _tmp = localtime(dt); memcpy((ts), _tmp, sizeof(tm)); } while (0)
 #endif

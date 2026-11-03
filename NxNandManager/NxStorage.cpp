@@ -15,6 +15,11 @@
  */
 
 #include "NxStorage.h"
+#include "NxFile.h"
+#if !defined(_WIN32)
+#include <sys/mount.h>
+#include <unistd.h>
+#endif
 
 
 static MagicOffsets mgkOffArr[] =
@@ -1371,11 +1376,15 @@ int NxStorage::dump(NxHandle *outHandle, params_t par, void(*updateProgress)(Pro
             }
         }
 
-        u32 data_clusters_to_copy = !par.format_user ? user->freeSpace / CLUSTER_SIZE - user->freeSpaceRaw / CLUSTER_SIZE : 0;
+        // Clusters to copy = every data cluster before the trailing block of free clusters (root cluster included)
+        u32 data_clusters_to_copy = !par.format_user ? user->availableTotSpace / CLUSTER_SIZE - user->freeSpaceRaw / CLUSTER_SIZE : 0;
 
         // Encrypt & write root cluster
-        if (data_clusters_to_copy && !nxHandle->read(s_buffer, &bytesCount, CLUSTER_SIZE))
-            return error(ERR_WHILE_COPY);
+        if (data_clusters_to_copy)
+        {
+            if (!nxHandle->read(s_buffer, &bytesCount, CLUSTER_SIZE))
+                return error(ERR_WHILE_COPY);
+        }
         else memset(s_buffer, 0, CLUSTER_SIZE);
 
         user->crypto()->encrypt(s_buffer, cur_cluster_num++);
@@ -1394,6 +1403,10 @@ int NxStorage::dump(NxHandle *outHandle, params_t par, void(*updateProgress)(Pro
             {
                 if (!nxHandle->read(s_buffer, &bytesCount, CLUSTER_SIZE))
                     return error(ERR_WHILE_COPY);
+
+                // Input is read decrypted, data clusters have to be encrypted again
+                if (user->isEncryptedPartition())
+                    user->crypto()->encrypt(s_buffer, cur_cluster_num);
 
                 data_clusters_to_copy--;
             }
@@ -2376,6 +2389,8 @@ int NxStorage::createMmcEmuNand(const char* mmc_path, void(*updateProgress)(Prog
 
     u64 pt = mmc.nxHandle->getCurrentPointer();
     mmc.nxHandle->closeHandle();
+    if (!RefreshPartitionTable(mmc.nxHandle->getPath()))
+        dbg_printf("NxStorage::createMmcEmuNand() - failed to refresh partition table\n");
     mmc.nxHandle->createHandle();
     mmc.nxHandle->setPointer(pt);
     Sleep(1000);
@@ -2388,6 +2403,38 @@ int NxStorage::createMmcEmuNand(const char* mmc_path, void(*updateProgress)(Prog
     dbg_wprintf(L"NxStorage::createMmcEmuNand() -mmc.nxHandle->getVolumeName() => %s\n", volumeName);
 
 
+#if !defined(_WIN32)
+    // Use existing mount point for new FAT32 partition, or mount it in a temporary directory
+    std::wstring root;
+    std::string tmp_mount_dir;
+    std::vector<volumeDescriptor> volumes;
+    GetVolumes(&volumes);
+    for (auto &vol : volumes)
+        if (!vol.volumeName.compare(volumeName) && vol.mountPt.length())
+            root = vol.mountPt;
+
+    if (!root.length())
+    {
+        char tmpl[] = "/tmp/nxnm_emummc_XXXXXX";
+        if (!mkdtemp(tmpl))
+            return ERR_VOL_MOUNT_FAILED;
+        tmp_mount_dir = tmpl;
+        if (mount(wstring_to_utf8(volumeName).c_str(), tmp_mount_dir.c_str(), "vfat", 0, nullptr))
+        {
+            dbg_printf("NxStorage::createMmcEmuNand() - mount failed %s\n", GetLastErrorAsString().c_str());
+            rmdir(tmp_mount_dir.c_str());
+            return ERR_VOL_MOUNT_FAILED;
+        }
+        root = utf8_to_wstring(tmp_mount_dir);
+    }
+    auto unmount_tmp = [&]() {
+        if (!tmp_mount_dir.length())
+            return;
+        sync();
+        umount(tmp_mount_dir.c_str());
+        rmdir(tmp_mount_dir.c_str());
+    };
+#else
     TCHAR Buf[MAX_PATH];    
     TCHAR Volume[MAX_PATH] = TEXT("");
     TCHAR AvailableDrive[] = L"";
@@ -2476,12 +2523,18 @@ int NxStorage::createMmcEmuNand(const char* mmc_path, void(*updateProgress)(Prog
 
     AvailableDrive[1] = TEXT('\0');
     std::wstring drive(AvailableDrive);
-    std::wstring path(drive + L":\\emuMMC");
+    std::wstring root(drive + L":");
+#endif
+
+    std::wstring path(native_path(root + L"\\emuMMC"));
     if(!CreateDirectoryW(path.c_str(), nullptr))
         dbg_wprintf(L"NxStorage::createMmcEmuNand() - Failed to mkdir %s (%s)\n", path.c_str(), GetLastErrorAsString().c_str());
 
     std::string filepath (path.begin(), path.end());
-    filepath.append("\\emummc.ini");
+#if !defined(_WIN32)
+    filepath = wstring_to_utf8(path);
+#endif
+    filepath.append(native_path(std::string("\\emummc.ini")));
     std::ofstream emummcIni (filepath);
     if (emummcIni.is_open())
     {
@@ -2495,13 +2548,13 @@ int NxStorage::createMmcEmuNand(const char* mmc_path, void(*updateProgress)(Prog
     }
     else dbg_printf("NxStorage::createMmcEmuNand() - Failed to create %s\n", filepath.c_str());
 
-    path.append(L"\\ER00");
+    path.append(native_path(std::wstring(L"\\ER00")));
     if(!CreateDirectoryW(path.c_str(), nullptr))
         dbg_wprintf(L"NxStorage::createMmcEmuNand() - Failed to mkdir %s (%s)\n", path.c_str(), GetLastErrorAsString().c_str());
 
     filepath.clear();
-    filepath.append(path.begin(), path.end());
-    filepath.append("\\raw_based");
+    filepath.append(wstring_to_utf8(path));
+    filepath.append(native_path(std::string("\\raw_based")));
     std::ofstream raw_based (filepath, std::ofstream::binary);
     u8 content[4] = { 0x02, 0x00, 0x00, 0x00 };
     if (!raw_based.write((char *)&content[0], 4))
@@ -2509,10 +2562,13 @@ int NxStorage::createMmcEmuNand(const char* mmc_path, void(*updateProgress)(Prog
     raw_based.close();
 
     path.clear();
-    path.append(drive + L":\\Emutendo");
+    path.append(native_path(root + L"\\Emutendo"));
     if(!CreateDirectoryW(path.c_str(), nullptr))
         dbg_wprintf(L"NxStorage::createMmcEmuNand() - Failed to mkdir %s (%s)\n", path.c_str(), GetLastErrorAsString().c_str());
 
+#if !defined(_WIN32)
+    unmount_tmp();
+#endif
     dbg_printf("NxStorage::createMmcEmuNand() - SUCCESS\n");
     return SUCCESS;
 }
@@ -2593,10 +2649,14 @@ int NxStorage::createFileBasedEmuNand(EmunandType emu_type, const wstring &volum
     if (vol.volumeFreeBytes < nand_size)
         return end(ERR_NO_SPACE_LEFT);
 
+#if defined(_WIN32)
     std::string volume(volume_path.begin(), volume_path.end());
+#else
+    std::string volume = wstring_to_utf8(volume_path);
+#endif
     std::string cur_dir, emu_dir;
 
-    auto getDir = [&] (const char *path) { return std::string(volume + path); };
+    auto getDir = [&] (const char *path) { return native_path(std::string(volume + path)); };
     auto n22dstr = [&] (int n) { char ns[4]; sprintf_s(ns, 4, "%02d", n); return std::string(ns); };
     switch (emu_type) {
     case fileBasedAMS : {
@@ -2672,9 +2732,9 @@ int NxStorage::createFileBasedEmuNand(EmunandType emu_type, const wstring &volum
     for (int i(0); i < 2; i++)
     {
         if (emu_type == fileBasedAMS)
-            cur_dir = emu_dir + "\\BOOT" + std::to_string(i);
+            cur_dir = native_path(emu_dir + "\\BOOT" + std::to_string(i));
         else
-            cur_dir = emu_dir + "\\boot" + std::to_string(i) + ".bin";
+            cur_dir = native_path(emu_dir + "\\boot" + std::to_string(i) + ".bin");
         curNxHandle= new NxHandle(cur_dir.c_str());
         part_params_t par;
         par.isSubParam = true;
@@ -2692,13 +2752,13 @@ int NxStorage::createFileBasedEmuNand(EmunandType emu_type, const wstring &volum
     if (type == RAWMMC) par.rawnand_only = true;
     if (emu_type == fileBasedAMS)
     {
-        cur_dir = emu_dir + "\\00";
+        cur_dir = native_path(emu_dir + "\\00");
         par.chunksize = 0xFE000000;
     }
     else
     {
         par.chunksize = 0xFFFE0000;
-        cur_dir = emu_dir + "\\full.00.bin";
+        cur_dir = native_path(emu_dir + "\\full.00.bin");
     }
     curNxHandle= new NxHandle(cur_dir.c_str(), par.chunksize);
     if (int rc = dump(curNxHandle, par, updateProgress))
@@ -2831,11 +2891,11 @@ std::string ListPhysicalDrives()
         {
             NxStorage storage(volume.volumeName);
             if (storage.isNxStorage())
-                compatibleDrives_tmp.append("  ").append(std::string(volume.volumeName.begin(), volume.volumeName.end()).c_str()).append(" [" + GetReadableSize(storage.size()) + " - " + storage.getNxTypeAsStr() + "]\n");
+                compatibleDrives_tmp.append("  ").append(wstring_to_utf8(volume.volumeName)).append(" [" + GetReadableSize(storage.size()) + " - " + storage.getNxTypeAsStr() + "]\n");
         }
 
         char driveName[256];
-        sprintf_s(driveName, 256, "\\\\.\\PhysicalDrive%d", disk.diskNumber);
+        sprintf_s(driveName, 256, "%s", wstring_to_utf8(GetPhysicalDrivePath(disk.diskNumber)).c_str());
         NxStorage storage(driveName);
         if (storage.isNxStorage())
             compatibleDrives.append(driveName).append(" [" + GetReadableSize(storage.size()) + " - " + storage.getNxTypeAsStr() + "]\n");
