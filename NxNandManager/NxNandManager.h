@@ -9,8 +9,7 @@
 #include <QtCore>
 #endif
 
-#include <windows.h>
-#include <winioctl.h>
+#include "res/win_compat.h"
 #include <stdio.h>
 #include <ctime>
 #include <clocale>
@@ -18,7 +17,6 @@
 #include <fstream>
 #include <iostream>
 
-#include <Wincrypt.h>
 #include <sys/types.h>
 #include "res/types.h"
 #include "res/utils.h"

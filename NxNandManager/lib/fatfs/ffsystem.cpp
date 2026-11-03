@@ -8,6 +8,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#if !defined(_WIN32)
+#include <mutex>
+#include <chrono>
+#endif
 
 #if FF_USE_LFN == 3	/* Dynamic memory allocation */
 
@@ -56,9 +60,15 @@ int ff_cre_syncobj (	/* 1:Function succeeded, 0:Could not create the sync object
 	FF_SYNC_t* sobj		/* Pointer to return the created sync object */
 )
 {
+#if defined(_WIN32)
 	/* Win32 */
 	*sobj = CreateMutex(NULL, FALSE, NULL);
 	return (int)(*sobj != INVALID_HANDLE_VALUE);
+#else
+	/* POSIX */
+	*sobj = new std::recursive_timed_mutex();
+	return 1;
+#endif
 
 	/* uITRON */
 //	T_CSEM csem = {TA_TPRI,1,1};
@@ -92,8 +102,14 @@ int ff_del_syncobj (	/* 1:Function succeeded, 0:Could not delete due to an error
 	FF_SYNC_t sobj		/* Sync object tied to the logical drive to be deleted */
 )
 {
+#if defined(_WIN32)
 	/* Win32 */
 	return (int)CloseHandle(sobj);
+#else
+	/* POSIX */
+	delete static_cast<std::recursive_timed_mutex*>(sobj);
+	return 1;
+#endif
 
 	/* uITRON */
 //	return (int)(del_sem(sobj) == E_OK);
@@ -123,8 +139,13 @@ int ff_req_grant (	/* 1:Got a grant to access the volume, 0:Could not get a gran
 	FF_SYNC_t sobj	/* Sync object to wait */
 )
 {
+#if defined(_WIN32)
 	/* Win32 */
 	return (int)(WaitForSingleObject(sobj, FF_FS_TIMEOUT) == WAIT_OBJECT_0);
+#else
+	/* POSIX */
+	return (int)static_cast<std::recursive_timed_mutex*>(sobj)->try_lock_for(std::chrono::milliseconds(FF_FS_TIMEOUT));
+#endif
 
 	/* uITRON */
 //	return (int)(wai_sem(sobj) == E_OK);
@@ -152,8 +173,13 @@ void ff_rel_grant (
 	FF_SYNC_t sobj	/* Sync object to be signaled */
 )
 {
+#if defined(_WIN32)
 	/* Win32 */
 	ReleaseMutex(sobj);
+#else
+	/* POSIX */
+	static_cast<std::recursive_timed_mutex*>(sobj)->unlock();
+#endif
 
 	/* uITRON */
 //	sig_sem(sobj);

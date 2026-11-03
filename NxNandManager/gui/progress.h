@@ -2,10 +2,9 @@
 #define PROGRESS_H
 
 #include <QDialog>
-#include <QtWinExtras>
+#include "taskbar_compat.h"
 #include <QMessageBox>
 #include <QProgressBar>
-#include <QWinTaskbarProgress>
 #include "../NxStorage.h"
 #include <QPlainTextEdit>
 

@@ -7,9 +7,7 @@ extern bool isGUI;
 #include <stdio.h>
 #include <string>
 #include <sys/types.h>
-#include <windows.h>
-#include <winioctl.h>
-#include <Wincrypt.h>
+#include "win_compat.h"
 #include "types.h"
 #include <sys/stat.h>
 #include <iostream>
@@ -19,7 +17,6 @@ extern bool isGUI;
 #include <wchar.h>
 #include <algorithm>
 #include <sstream>
-#include <tchar.h>
 #include <locale>
 #include <codecvt>
 #include <vector>
@@ -206,7 +203,9 @@ void throwException(const char* errorStr=NULL, void* p_arg1 = NULL, void* p_arg2
 char * flipAndCodeBytes(const char * str, int pos, int flip, char * buf);
 std::string ExePath();
 std::wstring ExePathW();
+#if defined(_WIN32)
 HMODULE GetCurrentModule();
+#endif
 bool file_exists(const wchar_t *fileName);
 int digit_to_int(char d);
 int hex_to_int(char c);
@@ -232,31 +231,37 @@ T base_nameW(T const & path, T const & delims = L"/\\")
 	return path.substr(path.find_last_of(delims) + 1);
 }
 template<class T>
+const typename T::value_type* path_separators()
+{
+    static const typename T::value_type seps[] = { '/', '\\', 0 };
+    return seps;
+}
+template<class T>
 T remove_extension(T const & filename)
 {
-    typename T::size_type const pmin(filename.find_last_of(L"/\\"));
+    typename T::size_type const pmin(filename.find_last_of(path_separators<T>()));
 	typename T::size_type const p(filename.find_last_of('.'));
     return p > 0 && (pmin == T::npos || p > pmin) && p != T::npos ? filename.substr(0, p) : filename;
 }
 template<class T>
 T remove_extensionW(T const & filename)
 {
-    typename T::size_type const pmin(filename.find_last_of(L"/\\"));
-	typename T::size_type const p(filename.find_last_of(L'.'));
+    typename T::size_type const pmin(filename.find_last_of(path_separators<T>()));
+	typename T::size_type const p(filename.find_last_of('.'));
     return p > 0 && (pmin == T::npos || p > pmin) && p != T::npos ? filename.substr(0, p) : filename;
 }
 template<class T>
 T get_extension(T const & filename)
 {
-    typename T::size_type const pmin(filename.find_last_of("/\\"));
+    typename T::size_type const pmin(filename.find_last_of(path_separators<T>()));
 	typename T::size_type const p(filename.find_last_of('.'));
     return p > 0 && (pmin == T::npos || p > pmin) && p != T::npos ? filename.substr(p, T::npos) : filename;
 }
 template<class T>
 T get_extensionW(T const & filename)
 {
-    typename T::size_type const pmin(filename.find_last_of(L"/\\"));
-	typename T::size_type const p(filename.find_last_of(L'.'));
+    typename T::size_type const pmin(filename.find_last_of(path_separators<T>()));
+	typename T::size_type const p(filename.find_last_of('.'));
     return p > 0 && (pmin == T::npos || p > pmin) && p != T::npos ? filename.substr(p, T::npos) : filename;
 }
 template<class T>

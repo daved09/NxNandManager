@@ -1,4 +1,6 @@
 #include "utils.h"
+#include <cstdarg>
+#include <cstring>
 using namespace std;
 
 wchar_t *convertCharArrayToLPCWSTR(const char* charArray)
@@ -42,6 +44,7 @@ std::string GetLastErrorAsString()
 			return std::string(el.label);
 	}
 
+#if defined(_WIN32)
 	LPSTR messageBuffer = NULL;
 	size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
 								 NULL, errorMessageID, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
@@ -52,6 +55,9 @@ std::string GetLastErrorAsString()
 	LocalFree(messageBuffer);
 
 	return message;
+#else
+	return std::string(strerror((int)errorMessageID));
+#endif
 }
 
 
@@ -141,7 +147,11 @@ std::string GetReadableSize(u64 size)
 	}
 	else
 	{
+#if defined(_WIN32)
 		sprintf_s(buf, sizeof(buf), "%I64d byte%s", size, size>1 ? "s" : "");
+#else
+		sprintf_s(buf, sizeof(buf), "%llu byte%s", (unsigned long long)size, size>1 ? "s" : "");
+#endif
 	}
 	return std::string(buf);
 }
@@ -316,7 +326,11 @@ std::string ExePath()
 	wchar_t buffer[MAX_PATH];
 	GetModuleFileName(NULL, buffer, MAX_PATH);
 	wstring ws(buffer);
+#if defined(_WIN32)
 	return string(ws.begin(), ws.end());
+#else
+	return wstring_to_utf8(ws);
+#endif
 }
 
 std::wstring ExePathW()
@@ -327,6 +341,7 @@ std::wstring ExePathW()
     return ws;
 }
 
+#if defined(_WIN32)
 HMODULE GetCurrentModule()
 {
 	HMODULE hModule = NULL;
@@ -337,6 +352,7 @@ HMODULE GetCurrentModule()
 
 	return hModule;
 }
+#endif
 
 bool file_exists(const wchar_t * fileName)
 {
@@ -344,8 +360,10 @@ bool file_exists(const wchar_t * fileName)
 	char buffer[_MAX_PATH];
 	std::wcstombs(buffer, fileName, _MAX_PATH);
 	std::ifstream infile(buffer);
-#else
+#elif defined(_WIN32)
 	std::ifstream infile(fileName);
+#else
+	std::ifstream infile(wstring_to_utf8(fileName));
 #endif
 	return infile.good();
 }
@@ -535,11 +553,86 @@ bool HasGenericKey(KeySet* keyset, std::string name)
 }
 
 
+#if !defined(_WIN32)
+/*
+ * Format strings in this project follow MSVCRT conventions (%I64d, %I32d, and %s meaning a wide
+ * string in wide format strings). Translate them to their C99/glibc equivalent.
+ */
+template<typename C>
+static std::basic_string<C> translate_format(const C *format, bool wide)
+{
+    std::basic_string<C> out;
+    if (!format)
+        return out;
+
+    const C *p = format;
+    while (*p)
+    {
+        if (*p != '%') { out += *p++; continue; }
+        out += *p++;
+        if (*p == '%') { out += *p++; continue; }
+
+        // Flags, width & precision
+        while (*p && (strchr("-+ #0123456789.*", (char)*p) != nullptr) && *p < 0x80)
+            out += *p++;
+
+        // Length modifiers
+        bool l_mod = false, h_mod = false;
+        if (p[0] == 'I' && p[1] == '6' && p[2] == '4') { out += 'l'; out += 'l'; p += 3; }
+        else if (p[0] == 'I' && p[1] == '3' && p[2] == '2') { p += 3; }
+        while (*p && *p < 0x80 && strchr("hlLqjzt", (char)*p))
+        {
+            if (*p == 'l') l_mod = true;
+            if (*p == 'h') { h_mod = true; p++; continue; }
+            out += *p++;
+        }
+        if (!*p)
+            break;
+
+        C conv = *p++;
+        if (conv == 'D') conv = 'd';
+        if (wide)
+        {
+            // In MSVCRT wide functions, %s/%c are wide and %S/%C/%hs are narrow
+            if ((conv == 's' || conv == 'c') && !l_mod && !h_mod) out += 'l';
+            else if (conv == 'S') conv = 's';
+            else if (conv == 'C') conv = 'c';
+        }
+        else if (h_mod && conv != 's' && conv != 'c')
+            out += 'h';
+        out += conv;
+    }
+    return out;
+}
+
+static std::string vformat_wide(const wchar_t *format, va_list args)
+{
+    std::wstring fmt = translate_format<wchar_t>(format, true);
+    std::vector<wchar_t> buf(1024);
+    while (true)
+    {
+        va_list cp;
+        va_copy(cp, args);
+        int n = vswprintf(buf.data(), buf.size(), fmt.c_str(), cp);
+        va_end(cp);
+        if (n >= 0)
+            return wstring_to_utf8(buf.data());
+        if (buf.size() > 0x100000)
+            return std::string();
+        buf.resize(buf.size() * 4);
+    }
+}
+#endif
+
 void app_printf (const char *format, ...)
 {
     va_list args;
     va_start( args, format );
+#if defined(_WIN32)
     vprintf(format, args);
+#else
+    vprintf(translate_format<char>(format, false).c_str(), args);
+#endif
     va_end( args );
     fflush(stdout);
 }
@@ -547,7 +640,12 @@ void app_wprintf (const wchar_t *format, ...)
 {
     va_list args;
     va_start( args, format );
+#if defined(_WIN32)
     vwprintf(format, args);
+#else
+    // Never use wide output functions on stdout: glibc streams can't mix narrow & wide output
+    fputs(vformat_wide(format, args).c_str(), stdout);
+#endif
     va_end( args );
     fflush(stdout);
 }
@@ -557,9 +655,16 @@ void dbg_printf (const char *format, ...)
 	if(!isdebug)
 		return;
 
+#if defined(_WIN32)
+    const char *fmt = format;
+#else
+    std::string s_fmt = translate_format<char>(format, false);
+    const char *fmt = s_fmt.c_str();
+#endif
+
 	va_list args;
 	va_start( args, format );
-	vprintf(format, args);
+	vprintf(fmt, args);
 	va_end( args );    
 
 #if defined(ENABLE_GUI)
@@ -567,7 +672,7 @@ void dbg_printf (const char *format, ...)
     {
         char line[MAX_PATH];
         va_start( args, format );
-        vsprintf(line, format, args);
+        vsnprintf(line, MAX_PATH, fmt, args);
         va_end( args );
         writeDebugLine(std::string(line));
         fflush(stdout);
@@ -581,6 +686,19 @@ void dbg_wprintf (const wchar_t *format, ...)
 		return;
 
 	va_list args;
+
+#if !defined(_WIN32)
+    va_start( args, format );
+    std::string sline = vformat_wide(format, args);
+    va_end( args );
+#if defined(ENABLE_GUI)
+    if (isGUI)
+        writeDebugLine(sline);
+#endif
+    fputs(sline.c_str(), stdout);
+    fflush(stdout);
+    return;
+#endif
 
 #if defined(ENABLE_GUI)
     if (isGUI)
@@ -677,6 +795,9 @@ DWORD randomDWORD() {
         |DWORD(random(256)<<16) | DWORD(random(256)<<24);
 }
 
+#if !defined(_WIN32)
+int IsWow64() { return FALSE; }
+#else
 typedef BOOL (WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
 LPFN_ISWOW64PROCESS fnIsWow64Process;
 BOOL IsWow64()
@@ -689,6 +810,7 @@ BOOL IsWow64()
         fnIsWow64Process(GetCurrentProcess(),&bIsWow64);
     return bIsWow64;
 }
+#endif
 
 std::vector<std::string> explode(std::string const & s, char delim)
 {
@@ -737,4 +859,5 @@ bool parse_hex_key(unsigned char *key, const char *hex, unsigned int len) {
         }
         key[i >> 1] |= val;
     }
+    return true;
 }

@@ -42,6 +42,10 @@ typedef unsigned __int64 QWORD;
 #define isnan(v) _isnan(v)
 #define isinf(v) (!_finite(v))
 
+#elif defined(__unix__) || defined(__APPLE__)	/* POSIX: use Win32 compatible types (WCHAR is wchar_t) */
+#define FF_INTDEF 2
+#include "../../res/win_compat.h"
+
 #elif (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L) || defined(__cplusplus)	/* C99 or later */
 #define FF_INTDEF 2
 #include <stdint.h>

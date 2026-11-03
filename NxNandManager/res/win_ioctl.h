@@ -19,14 +19,12 @@
 #include <stdio.h>
 #include <string>
 #include <sys/types.h>
-#include <windows.h>
-#include <winioctl.h>
+#include "win_compat.h"
 #include "types.h"
 #include <iostream>
 #include <fstream>
 #include <wchar.h>
 #include <sstream>
-#include <tchar.h>
 #include <algorithm>
 #include <vector>
 #include "utils.h"
@@ -69,4 +67,13 @@ bool DisMountAllVolumes(diskDescriptor dd);
 bool GetAvailableMountPoint(TCHAR *DriveLetter);
 std::vector<TCHAR> GetAvailableMountPoints();
 bool isAvailableMountPoint(TCHAR *DriveLetter);
+// Path to a physical drive from its disk number (\\.\PhysicalDriveX on Windows, /dev/xxx on Linux)
+std::wstring GetPhysicalDrivePath(DWORD diskNumber);
+// Disk number from a physical drive path. Returns false if path is not a physical drive
+bool GetDiskNumberFromPath(const std::wstring &path, DWORD *diskNumber);
+// Label for a volume mount point (drive letter on Windows, directory on Linux)
+std::wstring GetMountPointLabel(const std::wstring &mountPt);
+// Ask the OS to re-read the partition table of a physical drive (no-op on Windows)
+bool RefreshPartitionTable(const std::wstring &drivePath);
+
 #endif

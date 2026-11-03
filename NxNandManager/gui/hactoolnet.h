@@ -22,7 +22,11 @@ public:
 private:
     // Private objects
     QString last_error;
+#if defined(_WIN32)
     const QString hactool_exe = "res/hactoolnet.exe";
+#else
+    const QString hactool_exe = "res/hactoolnet";
+#endif
 
     // Private functions
     void process_exit(QProcess &process, std::function<void()> functor, ProcessFlags eb);

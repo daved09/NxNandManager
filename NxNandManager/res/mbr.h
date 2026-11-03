@@ -19,8 +19,7 @@
 
 #include "types.h"
 #include "utils.h"
-#include <windows.h>
-#include <winioctl.h>
+#include "win_compat.h"
 
 struct chs_t {
     u8 h;

@@ -864,9 +864,13 @@ void Explorer::do_decryptNCA_Hactool(CpyQueue queue)
 
 void Explorer::hactool_process(QQueue<QStringList> cmds)
 {
+#if defined(_WIN32)
     QString hactool = "res/hactool.exe";
+#else
+    QString hactool = "res/hactool";
+#endif
     if (!QFile(hactool).exists())
-        return error(0, "hactool.exe not found!");
+        return error(0, hactool + " not found!");
 
     for (auto args : cmds)
     {   
@@ -994,7 +998,7 @@ void Explorer::on_currentDir_combo_currentIndexChanged(int index)
     QString warning_txt;
     QString warning_tip;
     if (!m_hactool.exists()) {
-        warning_txt = "hactoolnet.exe not found!";
+        warning_txt = m_hactool.pgm_path() + " not found!";
         warning_tip = "Program path should be: " + m_hactool.pgm_path();
     }
     else if (m_partition->type() == USER && m_viewtype == Nca && !HasGenericKey(&m_partition->nxStorage()->keyset, "header_key")) {
@@ -1064,7 +1068,7 @@ void Explorer::decrypt(NxFileList selectedFiles)
         return;
 
     if (!m_hactool.exists())
-        return error(0, "hactoolnet.exe not found!");
+        return error(0, m_hactool.pgm_path() + " not found!");
 
     if (!m_partition->is_vfs_mounted() || (m_partition->is_vfs_mounted() && !m_partition->vfs()->virtualize_nxa))
         return askForVfsMount([=]() { decrypt(selectedFiles); });

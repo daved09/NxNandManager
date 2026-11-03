@@ -105,7 +105,7 @@ void Emunand::updateVolumesList()
     {
         QString drivename;
         if(vol.mountPt.length())
-            drivename.append(QString::fromWCharArray(vol.mountPt.c_str()).toUpper() + ":\\ - ");
+            drivename.append(QString::fromStdWString(GetMountPointLabel(vol.mountPt)) + QString(PATH_SEPARATOR) + " - ");
 
         if(vol.vId.length()) drivename.append(QString::fromStdString(vol.vId) + " ");
         drivename.append(QString::fromStdString(vol.pId));
@@ -163,7 +163,7 @@ void Emunand::updateDisksList()
             {
                 if(vol.mountPt.length())
                 {
-                    letters.append((count ? ", " : "") + QString::fromStdWString(vol.mountPt).toUpper() + ":\\");
+                    letters.append((count ? ", " : "") + QString::fromStdWString(GetMountPointLabel(vol.mountPt)) + QString(PATH_SEPARATOR));
                     count++;
                 }
             }
@@ -324,7 +324,7 @@ void Emunand::on_driveList_itemSelectionChanged()
         else
         {
             u64 userPartSize = disk->size - emuNandSize;
-            ui->outPathLbl->setText(QString("\\\\.\\PhysicalDrive").append(QString::number(disk->diskNumber)));
+            ui->outPathLbl->setText(QString::fromStdWString(GetPhysicalDrivePath(disk->diskNumber)));
 
             unsigned int emuNandPct = emuNandSize * 100 / (disk->size);
             ui->outBar->setValue(emuNandPct);
@@ -340,12 +340,16 @@ void Emunand::on_driveList_itemSelectionChanged()
     {
         volumeDescriptor *vol = &m_volumes.at(selected);
         u64 emuNandSize = input->size();
-        ui->outPathLbl->setText(QString::fromStdWString(vol->mountPt) + ":");
+        ui->outPathLbl->setText(QString::fromStdWString(GetMountPointLabel(vol->mountPt)));
 
         u64 freeSpace = 0;
         DWORD dwSectPerClust, dwBytesPerSect, dwFreeClusters, dwTotalClusters;
+#if defined(_WIN32)
         std::wstring volName = vol->volumeName;
         volName.append(L"\\");
+#else
+        std::wstring volName = vol->mountPt;
+#endif
         if(GetDiskFreeSpace(volName.c_str(), &dwSectPerClust, &dwBytesPerSect, &dwFreeClusters, &dwTotalClusters))
             freeSpace = (u64)dwFreeClusters * dwSectPerClust * dwBytesPerSect;
 
@@ -433,9 +437,13 @@ void Emunand::on_createEmunandBtn_clicked()
     std::string output(ui->outPathLbl->text().toLocal8Bit().constData());
     if (is_in(m_emu_type, {fileBasedAMS, fileBasedSXOS}))
     {
+#if defined(_WIN32)
         string volumename("\\\\.\\ :");
         volumename.at(4) = output.at(0);
         output = volumename;
+#else
+        output = ui->outPathLbl->text().toStdString();
+#endif
     }
 
     if (m_emu_type == rawBased && QMessageBox::question(this, "Warning", "All data on target disk will be lost. Are you sure you want to continue ?", QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)

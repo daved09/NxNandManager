@@ -9,8 +9,7 @@
 #include "../res/utils.h"
 #include "../NxStorage.h"
 #include "worker.h"
-#include <windows.h>
-#include <winioctl.h>
+#include "../res/win_compat.h"
 
 #define SD_PARTITION  0x01
 #define SD_FILE_AMS   0x02

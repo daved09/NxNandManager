@@ -18,7 +18,6 @@
 #define __NxStorage_h__
 
 extern bool isdebug;
-#include <fileapi.h>
 #include <openssl/sha.h>
 #include "res/utils.h"
 #include "res/types.h"

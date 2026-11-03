@@ -65,7 +65,7 @@ void OpenDrive::build_DriveList()
         QTreeWidgetItem *item = new QTreeWidgetItem(topLevelItem);
         item->setText(0, QString::fromStdString(disk.pId) + " " + QString::fromStdString(disk.vId));
         item->setText(1, QString::fromStdString(GetReadableSize(disk.size)));
-        item->setText(2, "\\\\.\\PhysicalDrive" + QString::number(disk.diskNumber));
+        item->setText(2, QString::fromStdWString(GetPhysicalDrivePath(disk.diskNumber)));
 
         for (volumeDescriptor vol : disk.volumes)
         {
@@ -73,7 +73,7 @@ void OpenDrive::build_DriveList()
 
             QString label;
             if (vol.mountPt.size())
-                label.append(QString::fromStdWString(vol.mountPt).toUpper() + ":");
+                label.append(QString::fromStdWString(GetMountPointLabel(vol.mountPt)));
             else
                 label.append(QString::fromStdWString(vol.volumeName));
 
